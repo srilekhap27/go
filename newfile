@@ -3,8 +3,11 @@
   "script": {
     "type": "text/javascript",
     "exec": [
-      "// Define the id-claim type: 'emp-id' or 'service-account-id'",
+      "// Fetch the correct id-claim type",
       "const idClaimType = pm.environment.get('id-claim-type');",
+      "",
+      "// Variable to store the id-claim value",
+      "let idClaimValue = '';",
       "",
       "if (idClaimType === 'emp-id') {",
       "    pm.sendRequest({",
@@ -19,7 +22,9 @@
       "            pm.environment.set('emp-id-claim', err);",
       "        } else {",
       "            const jsonData = res.json();",
-      "            pm.environment.set('emp-id-claim', jsonData['id-claim']);",
+      "            idClaimValue = jsonData['id-claim'];",
+      "            pm.environment.set('emp-id-claim', idClaimValue);",
+      "            pm.environment.set('id-claim', idClaimValue); // Set the final id-claim value",
       "        }",
       "    });",
       "} else if (idClaimType === 'service-account-id') {",
@@ -35,11 +40,14 @@
       "            pm.environment.set('service-account-id-claim', err);",
       "        } else {",
       "            const jsonData = res.json();",
-      "            pm.environment.set('service-account-id-claim', jsonData['id-claim']);",
+      "            idClaimValue = jsonData['id-claim'];",
+      "            pm.environment.set('service-account-id-claim', idClaimValue);",
+      "            pm.environment.set('id-claim', idClaimValue); // Set the final id-claim value",
       "        }",
       "    });",
       "} else {",
       "    console.log('Invalid id-claim type. Please set id-claim-type to either emp-id or service-account-id.');",
+      "    pm.environment.set('id-claim', 'Invalid id-claim type');",
       "}"
     ]
   }
