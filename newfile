@@ -1,79 +1,49 @@
-package main
-
-import (
-	"fmt"
-	"net/http"
-	"os"
-
-	"go.uber.org/zap"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
-	"prodgitlab.usaa.com/grp-external-authz/usaa-zap/pkg/usaazap"
-	"prodgitlab.usaa.com/grp-my-documents-retrieval/ent-mydocs-retrieval-svc/pkg/server"
-	"prodgitlab.usaa.com/grp-my-documents-retrieval/ent-mydocs-retrieval-svc/pkg/config"
-)
-
-var logger *zap.SugaredLogger
-
-// Initialize the logger
-func init() {
-	logger = usaazap.New().Sugar()
-}
-
-func main() {
-	// Start the Datadog tracer
-	tracer.Start(
-		tracer.WithService(os.Getenv("DD_SERVICE")),
-		tracer.WithTraceEnabled(true),
-		tracer.WithRuntimeMetrics(),
-		tracer.WithServiceVersion(os.Getenv("DD_VERSION")),
-		tracer.WithEnv(os.Getenv("DD_ENV")),
-	)
-	defer tracer.Stop()
-
-	logger.Info("Starting server...")
-
-	// Load configuration
-	cfg, err := config.NewConfig("./app_configs/app.yml")
-	if err != nil {
-		logger.Fatalf("Failed to load configuration: %v", err)
-		return
-	}
-
-	// Initialize HTTP server
-	mux := http.NewServeMux()
-
-	// Health check endpoints
-	mux.Handle(cfg.Endpoints.LivenessPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Liveness OK"))
-	}))
-	mux.Handle(cfg.Endpoints.ReadinessPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Readiness OK"))
-	}))
-
-	// Metrics endpoint
-	mux.Handle(cfg.Endpoints.MetricsPath, metrics.Handler())
-
-	// Application routes with metrics middleware
-	mux.Handle("/hello", metrics.NewMiddleware(func(r *http.Request) string {
-		return cfg.BasePath + "/hello"
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello, VictoriaMetrics!"))
-	})))
-
-	mux.Handle("/example", metrics.NewMiddleware(func(r *http.Request) string {
-		return cfg.BasePath + "/example"
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("This is an example route."))
-	})))
-
-	// Start the server
-	port := cfg.Server.Port
-	logger.Infof("Server is running on port %s", port)
-	if err := http.ListenAndServe(port, mux); err != nil {
-		logger.Fatalf("Server failed to start: %v", err)
-	}
+{
+  "listen": "prerequest",
+  "script": {
+    "type": "text/javascript",
+    "exec": [
+      "// Fetch id-claim for EMP credentials",
+      "pm.sendRequest({",
+      "    url: 'https://rintapi.usaa.com/v1/test-jwt-generator/id-claim?partyId=' + pm.environment.get(\"emp-id\"),",
+      "    method: 'GET',",
+      "    header: {",
+      "        'Content-Type': 'application/json'",
+      "    }",
+      "}, function (err, res) {",
+      "    if (err) {",
+      "        console.log(\"Error fetching EMP id-claim:\", err);",
+      "        pm.environment.set(\"emp-id-claim\", err);",
+      "    } else {",
+      "        var jsonData = res.json();",
+      "        pm.environment.set(\"emp-id-claim\", jsonData[\"id-claim\"]);",
+      "    }",
+      "});",
+      "",
+      "// Fetch service account ID claim",
+      "pm.sendRequest({",
+      "    url: 'https://rintapi.usaa.com/v1/test-jwt-generator/id-claim?svcAcct=' + pm.environment.get(\"service-account-id\"),",
+      "    method: 'GET',",
+      "    header: {",
+      "        'Content-Type': 'application/json'",
+      "    }",
+      "}, function (err, res) {",
+      "    if (err) {",
+      "        console.log(\"Error fetching Service Account id-claim:\", err);",
+      "        pm.environment.set(\"service-account-id-claim\", err);",
+      "    } else {",
+      "        var jsonData = res.json();",
+      "        pm.environment.set(\"service-account-id-claim\", jsonData[\"id-claim\"]);",
+      "    }",
+      "});",
+      "",
+      "// Handle invalid-idclaim for testing invalid scenarios",
+      "var invalidIdClaim = pm.environment.get(\"invalid-idclaim\");",
+      "if (!invalidIdClaim) {",
+      "    console.warn(\"Invalid id-claim is not defined in the environment.\");",
+      "} else {",
+      "    console.log(\"Using invalid-idclaim for testing:\", invalidIdClaim);",
+      "}"
+    ]
+  }
 }
