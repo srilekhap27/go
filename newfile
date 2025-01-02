@@ -1,54 +1,140 @@
-{
-  "listen": "prerequest",
-  "script": {
-    "type": "text/javascript",
-    "exec": [
-      "// Fetch the correct id-claim type",
-      "const idClaimType = pm.environment.get('id-claim-type');",
-      "",
-      "// Variable to store the id-claim value",
-      "let idClaimValue = '';",
-      "",
-      "if (idClaimType === 'emp-id') {",
-      "    pm.sendRequest({",
-      "        url: 'https://rintapi.usaa.com/v1/test-jwt-generator/id-claim?partyId=' + pm.environment.get('emp-id'),",
-      "        method: 'GET',",
-      "        header: {",
-      "            'Content-Type': 'application/json'",
-      "        }",
-      "    }, function (err, res) {",
-      "        if (err) {",
-      "            console.log(err);",
-      "            pm.environment.set('emp-id-claim', err);",
-      "        } else {",
-      "            const jsonData = res.json();",
-      "            idClaimValue = jsonData['id-claim'];",
-      "            pm.environment.set('emp-id-claim', idClaimValue);",
-      "            pm.environment.set('id-claim', idClaimValue); // Set the final id-claim value",
-      "        }",
-      "    });",
-      "} else if (idClaimType === 'service-account-id') {",
-      "    pm.sendRequest({",
-      "        url: 'https://rintapi.usaa.com/v1/test-jwt-generator/id-claim?svcAcct=' + pm.environment.get('service-account-id'),",
-      "        method: 'GET',",
-      "        header: {",
-      "            'Content-Type': 'application/json'",
-      "        }",
-      "    }, function (err, res) {",
-      "        if (err) {",
-      "            console.log(err);",
-      "            pm.environment.set('service-account-id-claim', err);",
-      "        } else {",
-      "            const jsonData = res.json();",
-      "            idClaimValue = jsonData['id-claim'];",
-      "            pm.environment.set('service-account-id-claim', idClaimValue);",
-      "            pm.environment.set('id-claim', idClaimValue); // Set the final id-claim value",
-      "        }",
-      "    });",
-      "} else {",
-      "    console.log('Invalid id-claim type. Please set id-claim-type to either emp-id or service-account-id.');",
-      "    pm.environment.set('id-claim', 'Invalid id-claim type');",
-      "}"
-    ]
-  }
-}
+# MyDocs Retrieval Service
+
+## Overview
+The MyDocs Retrieval Service is a Go-based microservice designed to handle document retrieval and management functionalities. It enables secure and efficient access to documents while managing user permissions and document metadata. This README outlines the structure, key components, and functionality of the project.
+
+---
+
+## Features
+- Retrieve document ownership information.
+- Open and stream document content.
+- Validate user permissions and log operations.
+- Monitor service performance with integrated tracing.
+
+---
+
+## System Design
+The system operates based on the following flow:
+1. **Retrieve Document Metadata:** The service fetches metadata by verifying the document's GUID and associated party ID.
+2. **Validate Ownership:** Validates ownership using APIs and security context.
+3. **Retrieve Content:** If validation is successful, the document content is retrieved and marked as read.
+4. **Error Handling:** Logs errors and provides appropriate HTTP responses for non-200 status codes.
+
+Refer to the provided system design diagram for a detailed workflow.
+
+---
+
+## Project Structure
+The project is organized into the following directories:
+
+```
+├── helm
+│   ├── templates
+│   │   └── *.yaml          # Helm template configurations
+│   ├── values.yaml        # Helm values configuration
+├── pkg
+│   ├── clients            # API clients for external communication
+│   ├── config             # Configuration management
+│   ├── controller         # HTTP handlers for the service
+│   ├── middleware         # Middleware for request handling
+│   ├── services           # Core service logic
+│   ├── utils              # Helper functions
+├── postman                # Postman collections for API testing
+├── app_configs            # Environment-specific configurations
+└── bzt_configs            # Performance testing configurations
+```
+
+---
+
+## Key Components
+
+### `pkg/clients`
+Contains client implementations for API communication. Notable clients:
+- `awsRetrievalDocument.go`: Handles AWS-related document retrieval.
+- `retrieveContent.go`: Retrieves document content using API calls.
+
+### `pkg/controller`
+Defines HTTP handlers for the service. Key handler:
+- `GetDocumentHandler`: Orchestrates document retrieval, metadata validation, and content streaming.
+
+### `pkg/services`
+Encapsulates business logic. Example:
+- `documentRetrievalService.go`: Implements methods for document ownership validation and content retrieval.
+
+### `pkg/middleware`
+Contains middleware for request handling and logging.
+
+### `postman`
+Includes Postman collections and environments for API testing.
+
+---
+
+## Code Walkthrough
+
+### Client Code
+The `CheckOwnership`, `DocumentOpen`, and `RetrieveContent` methods perform key operations such as:
+- Constructing the necessary API URLs.
+- Making HTTP requests.
+- Handling non-200 status codes and logging errors.
+
+### Controller Code
+The `GetDocumentHandler` method:
+1. Extracts path and header parameters.
+2. Invokes the service layer for document retrieval.
+3. Streams content back to the client.
+4. Handles errors gracefully and logs debug information.
+
+---
+
+## Configuration
+Configuration files are organized under `app_configs` and `helm` directories. Modify the `values.yaml` or environment-specific `.yml` files to customize the deployment.
+
+---
+
+## Deployment
+The service uses Helm for Kubernetes-based deployments. Steps:
+1. Update the Helm `values.yaml` with environment-specific details.
+2. Deploy the service using Helm:
+   ```
+   helm install mydocs-retrieval ./helm
+   ```
+
+---
+
+## Testing
+- Unit tests are located alongside the respective implementations.
+- Use the provided Postman collection for manual API testing.
+- Performance testing configurations are in the `bzt_configs` directory.
+
+---
+
+## Logging and Monitoring
+- Integrated tracing with `tracer` for monitoring service performance.
+- Logs are managed with `zap` logger.
+
+### Dashboards and Datadog Integration
+- **Dashboards:**
+  - Located in the `helm/dashboards` directory.
+  - A specific file named `grp-my-documents-retrieval.json` defines metrics and visualizations for monitoring the application.
+- **Datadog Integration:**
+  - Likely implemented through configurations in the `dashboards` directory or through environment variables configured in `values.yaml` files in the `helm` directory.
+  - May involve APM (Application Performance Monitoring) integration for tracing services and monitoring system health.
+
+### Taurus (bzt_configs)
+- Located in the `bzt_configs` directory.
+- The presence of `taurus.yml` suggests performance testing configurations using the Taurus testing framework.
+- Defines scenarios for load and stress testing.
+
+---
+
+## Contributing
+1. Fork the repository.
+2. Create a new branch for your feature.
+3. Commit your changes with descriptive messages.
+4. Open a pull request for review.
+
+---
+
+## License
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
