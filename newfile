@@ -1,140 +1,33 @@
-# MyDocs Retrieval Service
+I wanted to confirm my understanding of the task and ask a few clarifying questions to ensure everything is on track.
 
-## Overview
-The MyDocs Retrieval Service is a Go-based microservice designed to handle document retrieval and management functionalities. It enables secure and efficient access to documents while managing user permissions and document metadata. This README outlines the structure, key components, and functionality of the project.
+What I Understand:
+We need to develop two Lambda functions as part of the ADMIN service:
 
----
+Get Documents by Batch ID:
 
-## Features
-- Retrieve document ownership information.
-- Open and stream document content.
-- Validate user permissions and log operations.
-- Monitor service performance with integrated tracing.
+Endpoint: /admin/documents/batches/{batchID}
+This will use the BLK_BTCH_ID-PK-idx Global Secondary Index (GSI) on the documents-table to fetch all documents linked to the given Batch ID.
+The GSI only includes item keys, so additional metadata or columns won’t be available directly.
+Get Documents by Document GUID:
 
----
+Endpoint: /admin/documents/{guid}
+This will use the DOC-GUID-PK-idx GSI on the documents-table to fetch documents based on their GUID.
+Similar to the Batch ID GSI, only keys are returned, and no extra data/columns are included.
+The goal seems to be focused on fetching document keys and metadata based on these identifiers.
 
-## System Design
-The system operates based on the following flow:
-1. **Retrieve Document Metadata:** The service fetches metadata by verifying the document's GUID and associated party ID.
-2. **Validate Ownership:** Validates ownership using APIs and security context.
-3. **Retrieve Content:** If validation is successful, the document content is retrieved and marked as read.
-4. **Error Handling:** Logs errors and provides appropriate HTTP responses for non-200 status codes.
+Questions:
+GSI Clarification:
 
-Refer to the provided system design diagram for a detailed workflow.
+I understand that a GSI (Global Secondary Index) is a way to query DynamoDB tables using an alternate key. Can you confirm this understanding, and is there anything else I should know about how the GSIs work in this context?
+Metadata Retrieval:
 
----
+Since the GSIs only return keys, is there a separate table or process planned for fetching metadata? How should this be handled?
+Batch Size Limitations:
 
-## Project Structure
-The project is organized into the following directories:
+Are there any restrictions on the number of documents a batch can contain? Do we need to handle large data volumes for this?
+API Logic:
 
-```
-├── helm
-│   ├── templates
-│   │   └── *.yaml          # Helm template configurations
-│   ├── values.yaml        # Helm values configuration
-├── pkg
-│   ├── clients            # API clients for external communication
-│   ├── config             # Configuration management
-│   ├── controller         # HTTP handlers for the service
-│   ├── middleware         # Middleware for request handling
-│   ├── services           # Core service logic
-│   ├── utils              # Helper functions
-├── postman                # Postman collections for API testing
-├── app_configs            # Environment-specific configurations
-└── bzt_configs            # Performance testing configurations
-```
+Should we also be creating the API logic for these endpoints, or is it expected that the Lambda functions will directly interact with the documents-table and handle everything?
+Error Handling:
 
----
-
-## Key Components
-
-### `pkg/clients`
-Contains client implementations for API communication. Notable clients:
-- `awsRetrievalDocument.go`: Handles AWS-related document retrieval.
-- `retrieveContent.go`: Retrieves document content using API calls.
-
-### `pkg/controller`
-Defines HTTP handlers for the service. Key handler:
-- `GetDocumentHandler`: Orchestrates document retrieval, metadata validation, and content streaming.
-
-### `pkg/services`
-Encapsulates business logic. Example:
-- `documentRetrievalService.go`: Implements methods for document ownership validation and content retrieval.
-
-### `pkg/middleware`
-Contains middleware for request handling and logging.
-
-### `postman`
-Includes Postman collections and environments for API testing.
-
----
-
-## Code Walkthrough
-
-### Client Code
-The `CheckOwnership`, `DocumentOpen`, and `RetrieveContent` methods perform key operations such as:
-- Constructing the necessary API URLs.
-- Making HTTP requests.
-- Handling non-200 status codes and logging errors.
-
-### Controller Code
-The `GetDocumentHandler` method:
-1. Extracts path and header parameters.
-2. Invokes the service layer for document retrieval.
-3. Streams content back to the client.
-4. Handles errors gracefully and logs debug information.
-
----
-
-## Configuration
-Configuration files are organized under `app_configs` and `helm` directories. Modify the `values.yaml` or environment-specific `.yml` files to customize the deployment.
-
----
-
-## Deployment
-The service uses Helm for Kubernetes-based deployments. Steps:
-1. Update the Helm `values.yaml` with environment-specific details.
-2. Deploy the service using Helm:
-   ```
-   helm install mydocs-retrieval ./helm
-   ```
-
----
-
-## Testing
-- Unit tests are located alongside the respective implementations.
-- Use the provided Postman collection for manual API testing.
-- Performance testing configurations are in the `bzt_configs` directory.
-
----
-
-## Logging and Monitoring
-- Integrated tracing with `tracer` for monitoring service performance.
-- Logs are managed with `zap` logger.
-
-### Dashboards and Datadog Integration
-- **Dashboards:**
-  - Located in the `helm/dashboards` directory.
-  - A specific file named `grp-my-documents-retrieval.json` defines metrics and visualizations for monitoring the application.
-- **Datadog Integration:**
-  - Likely implemented through configurations in the `dashboards` directory or through environment variables configured in `values.yaml` files in the `helm` directory.
-  - May involve APM (Application Performance Monitoring) integration for tracing services and monitoring system health.
-
-### Taurus (bzt_configs)
-- Located in the `bzt_configs` directory.
-- The presence of `taurus.yml` suggests performance testing configurations using the Taurus testing framework.
-- Defines scenarios for load and stress testing.
-
----
-
-## Contributing
-1. Fork the repository.
-2. Create a new branch for your feature.
-3. Commit your changes with descriptive messages.
-4. Open a pull request for review.
-
----
-
-## License
-This project is licensed under the MIT License. See the `LICENSE` file for details.
-
+What is the expected behavior if the requested Batch ID or GUID does not exist in the database?
