@@ -1,33 +1,60 @@
-I wanted to confirm my understanding of the task and ask a few clarifying questions to ensure everything is on track.
+package main
 
-What I Understand:
-We need to develop two Lambda functions as part of the ADMIN service:
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
 
-Get Documents by Batch ID:
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
 
-Endpoint: /admin/documents/batches/{batchID}
-This will use the BLK_BTCH_ID-PK-idx Global Secondary Index (GSI) on the documents-table to fetch all documents linked to the given Batch ID.
-The GSI only includes item keys, so additional metadata or columns won’t be available directly.
-Get Documents by Document GUID:
+func main() {
+	// Load AWS configuration
+	cfg, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		log.Fatalf("Unable to load AWS SDK config: %v", err)
+	}
 
-Endpoint: /admin/documents/{guid}
-This will use the DOC-GUID-PK-idx GSI on the documents-table to fetch documents based on their GUID.
-Similar to the Batch ID GSI, only keys are returned, and no extra data/columns are included.
-The goal seems to be focused on fetching document keys and metadata based on these identifiers.
+	// Initialize S3 client
+	s3Client := s3.NewFromConfig(cfg)
 
-Questions:
-GSI Clarification:
+	// Specify your bucket name and batchID prefix
+	bucketName := "your-bucket-name"
+	batchID := "exampleBatchID"
 
-I understand that a GSI (Global Secondary Index) is a way to query DynamoDB tables using an alternate key. Can you confirm this understanding, and is there anything else I should know about how the GSIs work in this context?
-Metadata Retrieval:
+	// List objects in the bucket with a prefix matching batchID
+	listInput := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(batchID), // Assumes batchID is part of the object key
+	}
 
-Since the GSIs only return keys, is there a separate table or process planned for fetching metadata? How should this be handled?
-Batch Size Limitations:
+	output, err := s3Client.ListObjectsV2(context.TODO(), listInput)
+	if err != nil {
+		log.Fatalf("Failed to list objects: %v", err)
+	}
 
-Are there any restrictions on the number of documents a batch can contain? Do we need to handle large data volumes for this?
-API Logic:
+	fmt.Printf("Objects with batchID '%s':\n", batchID)
+	for _, object := range output.Contents {
+		fmt.Printf("Key: %s, Size: %d bytes\n", *object.Key, object.Size)
+	}
 
-Should we also be creating the API logic for these endpoints, or is it expected that the Lambda functions will directly interact with the documents-table and handle everything?
-Error Handling:
+	// Optional: Fetch object content if needed
+	for _, object := range output.Contents {
+		getObjectInput := &s3.GetObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    object.Key,
+		}
+		resp, err := s3Client.GetObject(context.TODO(), getObjectInput)
+		if err != nil {
+			log.Printf("Failed to get object %s: %v", *object.Key, err)
+			continue
+		}
+		defer resp.Body.Close()
 
-What is the expected behavior if the requested Batch ID or GUID does not exist in the database?
+		// Example: Process object body (e.g., print, store, or decode)
+		fmt.Printf("Content of object %s retrieved successfully\n", *object.Key)
+	}
+}
