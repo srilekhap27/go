@@ -19,8 +19,13 @@ type MockDynamoDB struct {
 	mock.Mock
 }
 
-func (m *MockDynamoDB) Query(tableName, indexName *string, expr expression.Expression, _, _, _ interface{}, result interface{}) error {
-	args := m.Called(tableName, indexName, expr, result)
+func (m *MockDynamoDB) Query(tableName, indexName *string, expr expression.Expression, filter, limit, lastEvaluatedKey interface{}, result interface{}) error {
+	args := m.Called(tableName, indexName, expr, filter, limit, lastEvaluatedKey, result)
+	return args.Error(0)
+}
+
+func (m *MockDynamoDB) BatchWriteItem(input interface{}) error {
+	args := m.Called(input)
 	return args.Error(0)
 }
 
@@ -28,8 +33,12 @@ type MockConnection struct {
 	DbClient *MockDynamoDB
 }
 
-func (m *MockConnection) Query(tableName, indexName *string, expr expression.Expression, _, _, _ interface{}, result interface{}) error {
-	return m.DbClient.Query(tableName, indexName, expr, _, _, _, result)
+func (m *MockConnection) Query(tableName, indexName *string, expr expression.Expression, filter, limit, lastEvaluatedKey interface{}, result interface{}) error {
+	return m.DbClient.Query(tableName, indexName, expr, filter, limit, lastEvaluatedKey, result)
+}
+
+func (m *MockConnection) BatchWriteItem(input interface{}) error {
+	return m.DbClient.BatchWriteItem(input)
 }
 
 func TestGetHandler_Success(t *testing.T) {
@@ -48,8 +57,8 @@ func TestGetHandler_Success(t *testing.T) {
 		},
 	}
 
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		result := args.Get(3).(*[]models.DocumentDbRecord)
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		result := args.Get(6).(*[]models.DocumentDbRecord)
 		*result = documents
 	}).Return(nil)
 
@@ -80,7 +89,7 @@ func TestGetHandler_NoDocumentsFound(t *testing.T) {
 		},
 	}
 
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	req := events.APIGatewayProxyRequest{
 		PathParameters: map[string]string{"bulkBatchId": "batch123"},
@@ -106,7 +115,7 @@ func TestGetHandler_DynamoDBError(t *testing.T) {
 		},
 	}
 
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("DynamoDB error"))
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("DynamoDB error"))
 
 	req := events.APIGatewayProxyRequest{
 		PathParameters: map[string]string{"bulkBatchId": "batch123"},
