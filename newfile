@@ -1,60 +1,125 @@
-package main
+package handler_test
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"strings"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/models"
+	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
+	"your_project/handler"
 )
 
-func main() {
-	// Load AWS configuration
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		log.Fatalf("Unable to load AWS SDK config: %v", err)
+type MockDynamoDB struct {
+	mock.Mock
+}
+
+func (m *MockDynamoDB) Query(tableName, indexName *string, expr expression.Expression, _, _, _ interface{}, result interface{}) error {
+	args := m.Called(tableName, indexName, expr, result)
+	return args.Error(0)
+}
+
+type MockConnection struct {
+	DbClient *MockDynamoDB
+}
+
+func (m *MockConnection) Query(tableName, indexName *string, expr expression.Expression, _, _, _ interface{}, result interface{}) error {
+	return m.DbClient.Query(tableName, indexName, expr, _, _, _, result)
+}
+
+func TestGetHandler_Success(t *testing.T) {
+	mockDB := &MockDynamoDB{}
+	h := &handler.Handler{
+		DynamoDB: repositories.Connection{
+			DbClient: mockDB,
+		},
 	}
 
-	// Initialize S3 client
-	s3Client := s3.NewFromConfig(cfg)
-
-	// Specify your bucket name and batchID prefix
-	bucketName := "your-bucket-name"
-	batchID := "exampleBatchID"
-
-	// List objects in the bucket with a prefix matching batchID
-	listInput := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
-		Prefix: aws.String(batchID), // Assumes batchID is part of the object key
+	documents := []models.DocumentDbRecord{
+		{
+			PartitionKey: "PARTY#123",
+			SortKey:      "DOC#guid123#DISP_DT#2025-01-01",
+			BulkBatchID:  "batch123",
+		},
 	}
 
-	output, err := s3Client.ListObjectsV2(context.TODO(), listInput)
-	if err != nil {
-		log.Fatalf("Failed to list objects: %v", err)
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		result := args.Get(3).(*[]models.DocumentDbRecord)
+		*result = documents
+	}).Return(nil)
+
+	req := events.APIGatewayProxyRequest{
+		PathParameters: map[string]string{"bulkBatchId": "batch123"},
 	}
 
-	fmt.Printf("Objects with batchID '%s':\n", batchID)
-	for _, object := range output.Contents {
-		fmt.Printf("Key: %s, Size: %d bytes\n", *object.Key, object.Size)
+	resp, err := h.GetHandler(req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var responseBody []handler.ResponseBody
+	err = json.Unmarshal([]byte(resp.Body), &responseBody)
+	assert.NoError(t, err)
+	assert.Len(t, responseBody, 1)
+	assert.Equal(t, "123", responseBody[0].PartitionKey)
+	assert.Equal(t, "guid123", responseBody[0].DocumentGUID)
+	assert.Equal(t, "2025-01-01", responseBody[0].DisplayDate)
+	assert.Equal(t, "batch123", responseBody[0].BulkBatchID)
+}
+
+func TestGetHandler_NoDocumentsFound(t *testing.T) {
+	mockDB := &MockDynamoDB{}
+	h := &handler.Handler{
+		DynamoDB: repositories.Connection{
+			DbClient: mockDB,
+		},
 	}
 
-	// Optional: Fetch object content if needed
-	for _, object := range output.Contents {
-		getObjectInput := &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    object.Key,
-		}
-		resp, err := s3Client.GetObject(context.TODO(), getObjectInput)
-		if err != nil {
-			log.Printf("Failed to get object %s: %v", *object.Key, err)
-			continue
-		}
-		defer resp.Body.Close()
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-		// Example: Process object body (e.g., print, store, or decode)
-		fmt.Printf("Content of object %s retrieved successfully\n", *object.Key)
+	req := events.APIGatewayProxyRequest{
+		PathParameters: map[string]string{"bulkBatchId": "batch123"},
 	}
+
+	resp, err := h.GetHandler(req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	var responseBody handler.OutputResponse
+	err = json.Unmarshal([]byte(resp.Body), &responseBody)
+	assert.NoError(t, err)
+	assert.Equal(t, "batch123", responseBody.BatchID)
+	assert.Equal(t, "No Documents found with given BatchID", responseBody.ErrorMessage)
+}
+
+func TestGetHandler_DynamoDBError(t *testing.T) {
+	mockDB := &MockDynamoDB{}
+	h := &handler.Handler{
+		DynamoDB: repositories.Connection{
+			DbClient: mockDB,
+		},
+	}
+
+	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("DynamoDB error"))
+
+	req := events.APIGatewayProxyRequest{
+		PathParameters: map[string]string{"bulkBatchId": "batch123"},
+	}
+
+	resp, err := h.GetHandler(req)
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	var responseBody handler.OutputResponse
+	err = json.Unmarshal([]byte(resp.Body), &responseBody)
+	assert.NoError(t, err)
+	assert.Equal(t, "batch123", responseBody.BatchID)
+	assert.Equal(t, "Error getting items from Dynamo", responseBody.ErrorMessage)
 }
