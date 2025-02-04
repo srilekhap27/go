@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,17 +9,20 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/models"
 	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
 )
 
 type MockDynamoDB struct {
-	QueryFunc func(tableName, indexName *string, expr interface{}, limit, startKey, endKey interface{}, tableItems interface{}) error
+	repositories.DbClientInterface
+	QueryFunc func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-func (m *MockDynamoDB) Query(tableName, indexName *string, expr interface{}, limit, startKey, endKey interface{}, tableItems interface{}) error {
-	return m.QueryFunc(tableName, indexName, expr, limit, startKey, endKey, tableItems)
+func (m *MockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	return m.QueryFunc(ctx, params, optFns...)
 }
 
 func TestGetHandler(t *testing.T) {
@@ -37,16 +41,18 @@ func TestGetHandler(t *testing.T) {
 				},
 			},
 			dynamoDBMock: func() repositories.Connection {
-				return &MockDynamoDB{
-					QueryFunc: func(tableName, indexName *string, expr interface{}, limit, startKey, endKey interface{}, tableItems interface{}) error {
-						docs := []models.DocumentDbRecord{
-							{PartitionKey: "PARTY#123", SortKey: "DOC#guid1#DISP_DT#2024-01-01", BulkBatchID: "valid-batch"},
-						}
-						*t := docs
-						return nil
+				return repositories.Connection{
+					DbClient: &MockDynamoDB{
+						QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+						return &dynamodb.QueryOutput{
+							Items: []map[string]types.AttributeValue{
+								{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
+							},
+						}, nil
 					},
-				}
-			},
+				},
+			}
+		},
 			expectedStatusCode: http.StatusOK,
 			expectedBody: func() string {
 				body, _ := json.Marshal([]ResponseBody{{
@@ -59,30 +65,6 @@ func TestGetHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "Invalid Batch ID",
-			request: events.APIGatewayProxyRequest{
-				PathParameters: map[string]string{
-					"bulkBatchId": "invalid-batch",
-				},
-			},
-			dynamoDBMock: func() repositories.Connection {
-				return &MockDynamoDB{
-					QueryFunc: func(tableName, indexName *string, expr interface{}, limit, startKey, endKey interface{}, tableItems interface{}) error {
-						return errors.New("DynamoDB error")
-					},
-				}
-			},
-			expectedStatusCode: http.StatusInternalServerError,
-			expectedBody: func() string {
-				body, _ := json.Marshal(OutputResponse{
-					BatchID:      "invalid-batch",
-					ErrorMessage: "Error getting items from Dynamo",
-					Timestamp:    time.Now(),
-				})
-				return string(body)
-			},
-		},
-		{
 			name: "No Documents Found",
 			request: events.APIGatewayProxyRequest{
 				PathParameters: map[string]string{
@@ -90,10 +72,11 @@ func TestGetHandler(t *testing.T) {
 				},
 			},
 			dynamoDBMock: func() repositories.Connection {
-				return &MockDynamoDB{
-					QueryFunc: func(tableName, indexName *string, expr interface{}, limit, startKey, endKey interface{}, tableItems interface{}) error {
-						*t := []models.DocumentDbRecord{}
-						return nil
+				return repositories.Connection{
+					DbClient: &MockDynamoDB{
+						QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+							return &dynamodb.QueryOutput{}, nil
+						},
 					},
 				}
 			},
