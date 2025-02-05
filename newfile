@@ -21,7 +21,24 @@ type MockDynamoDB struct {
 }
 
 func (m *MockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	return m.QueryFunc(ctx, params, optFns...)
+	if params.ExpressionAttributeValues == nil || params.ExpressionAttributeValues[":batchID"] == nil {
+		return nil, errors.New("ExpressionAttributeValues or :batchID is nil")
+	}
+
+	batchIDValue, ok := params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS)
+	if !ok {
+		return nil, errors.New("invalid type for :batchID")
+	}
+
+	if batchIDValue.Value == "valid-batch" {
+		return &dynamodb.QueryOutput{
+			Items: []map[string]types.AttributeValue{
+				{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
+			},
+		}, nil
+	}
+
+	return &dynamodb.QueryOutput{}, nil
 }
 
 func TestHandleRequest(t *testing.T) {
@@ -70,13 +87,23 @@ func TestHandleRequest(t *testing.T) {
 					DynamoDB: repositories.Connection{
 						DbClient: &MockDynamoDB{
 							QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-								if params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS).Value == "valid-batch" {
+								if params.ExpressionAttributeValues == nil || params.ExpressionAttributeValues[":batchID"] == nil {
+									return nil, errors.New("ExpressionAttributeValues or :batchID is nil")
+								}
+
+								batchIDValue, ok := params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS)
+								if !ok {
+									return nil, errors.New("invalid type for :batchID")
+								}
+
+								if batchIDValue.Value == "valid-batch" {
 									return &dynamodb.QueryOutput{
 										Items: []map[string]types.AttributeValue{
 											{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
 										},
 									}, nil
 								}
+
 								return &dynamodb.QueryOutput{}, nil
 							},
 						},
