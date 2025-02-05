@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
 	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-get-documents-by-batchid-lambda/internal/handler"
@@ -31,7 +32,7 @@ func TestHandleRequest(t *testing.T) {
 		expectedBody       string
 	}{
 		{
-			name: "Valid GET Request",
+			name: "Valid GET Request with Data",
 			request: events.APIGatewayProxyRequest{
 				HTTPMethod: "GET",
 				PathParameters: map[string]string{
@@ -39,7 +40,18 @@ func TestHandleRequest(t *testing.T) {
 				},
 			},
 			expectedStatusCode: http.StatusOK,
-			expectedBody:       "",
+			expectedBody:       `[{"PartitionKey":"123","DocumentGUID":"guid1","DisplayDate":"2024-01-01","BulkBatchID":"valid-batch"}]`,
+		},
+		{
+			name: "Valid GET Request with No Data",
+			request: events.APIGatewayProxyRequest{
+				HTTPMethod: "GET",
+				PathParameters: map[string]string{
+					"bulkBatchId": "empty-batch",
+				},
+			},
+			expectedStatusCode: http.StatusNotFound,
+			expectedBody:       `{"BatchID":"empty-batch","ErrorMessage":"No Documents found with given BatchID","Timestamp":""}`,
 		},
 		{
 			name: "Invalid HTTP Method",
@@ -58,6 +70,13 @@ func TestHandleRequest(t *testing.T) {
 					DynamoDB: repositories.Connection{
 						DbClient: &MockDynamoDB{
 							QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+								if params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS).Value == "valid-batch" {
+									return &dynamodb.QueryOutput{
+										Items: []map[string]types.AttributeValue{
+											{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
+										},
+									}, nil
+								}
 								return &dynamodb.QueryOutput{}, nil
 							},
 						},
@@ -68,11 +87,11 @@ func TestHandleRequest(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedStatusCode, response.StatusCode)
 
-			var expectedBody, actualBody string
 			if tt.expectedBody != "" {
-				expectedBody = tt.expectedBody
-				actualBody = response.Body
-				assert.Equal(t, expectedBody, actualBody)
+				var expectedOutput, actualOutput interface{}
+				_ = json.Unmarshal([]byte(tt.expectedBody), &expectedOutput)
+				_ = json.Unmarshal([]byte(response.Body), &actualOutput)
+				assert.Equal(t, expectedOutput, actualOutput)
 			}
 		})
 	}
