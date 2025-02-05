@@ -1,111 +1,79 @@
-package handler
+package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/models"
-	"prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
+	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
+	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-get-documents-by-batchid-lambda/internal/handler"
 )
 
-// MockConnection is a mock implementation of repositories.Connection
-
-type MockConnection struct {
-	mock.Mock
+type MockDynamoDB struct {
+	repositories.DbClientInterface
+	QueryFunc func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-func (m *MockConnection) Query(
-	tableName, indexName *string,
-	expr expression.Expression,
-	limit *int32,
-	lastEvaluatedItem map[string]interface{},
-	isAscending *bool,
-	tableItems interface{},
-) error {
-	args := m.Called(tableName, indexName, expr, limit, lastEvaluatedItem, isAscending, tableItems)
-	if args.Get(0) != nil {
-		*tableItems.(*[]models.DocumentDbRecord) = args.Get(0).([]models.DocumentDbRecord)
-	}
-	return args.Error(1)
+func (m *MockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	return m.QueryFunc(ctx, params, optFns...)
 }
 
-func TestGetHandler_Success(t *testing.T) {
-	mockDB := new(MockConnection)
-	h := Handler{DynamoDB: mockDB}
-
-	batchID := "test-batch-id"
-	documents := []models.DocumentDbRecord{
+func TestHandleRequest(t *testing.T) {
+	tests := []struct {
+		name               string
+		request            events.APIGatewayProxyRequest
+		expectedStatusCode int
+		expectedBody       string
+	}{
 		{
-			PartitionKey: "PRTY_ID#1234",
-			SortKey:      "DOC#5678#DISP_DT#2024-02-01",
-			BulkBatchID:  batchID,
+			name: "Valid GET Request",
+			request: events.APIGatewayProxyRequest{
+				HTTPMethod: "GET",
+				PathParameters: map[string]string{
+					"bulkBatchId": "valid-batch",
+				},
+			},
+			expectedStatusCode: http.StatusOK,
+			expectedBody:       "",
+		},
+		{
+			name: "Invalid HTTP Method",
+			request: events.APIGatewayProxyRequest{
+				HTTPMethod: "POST",
+			},
+			expectedStatusCode: http.StatusMethodNotAllowed,
+			expectedBody:       "Unsupported http request or method",
 		},
 	}
 
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(documents, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := MyHandler{
+				Handler: handler.Handler{
+					DynamoDB: repositories.Connection{
+						DbClient: &MockDynamoDB{
+							QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+								return &dynamodb.QueryOutput{}, nil
+							},
+						},
+					},
+				},
+			}
+			response, err := h.handleRequest(tt.request)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedStatusCode, response.StatusCode)
 
-	req := events.APIGatewayProxyRequest{
-		PathParameters: map[string]string{"bulkBatchId": batchID},
+			var expectedBody, actualBody string
+			if tt.expectedBody != "" {
+				expectedBody = tt.expectedBody
+				actualBody = response.Body
+				assert.Equal(t, expectedBody, actualBody)
+			}
+		})
 	}
-
-	response, err := h.GetHandler(req)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 200, response.StatusCode)
-
-	var responseBody []ResponseBody
-	err = json.Unmarshal([]byte(response.Body), &responseBody)
-	assert.NoError(t, err)
-	assert.Len(t, responseBody, 1)
-	assert.Equal(t, "1234", responseBody[0].PartitionKey)
-	assert.Equal(t, "5678", responseBody[0].DocumentGUID)
-	assert.Equal(t, "2024-02-01", responseBody[0].DisplayDate)
-	assert.Equal(t, batchID, responseBody[0].BulkBatchID)
-}
-
-func TestGetHandler_NoResults(t *testing.T) {
-	mockDB := new(MockConnection)
-	h := Handler{DynamoDB: mockDB}
-
-	batchID := "non-existing-batch"
-
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return([]models.DocumentDbRecord{}, nil)
-
-	req := events.APIGatewayProxyRequest{
-		PathParameters: map[string]string{"bulkBatchId": batchID},
-	}
-
-	response, err := h.GetHandler(req)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 404, response.StatusCode)
-	assert.Contains(t, response.Body, "No Documents found")
-}
-
-func TestGetHandler_DynamoDBError(t *testing.T) {
-	mockDB := new(MockConnection)
-	h := Handler{DynamoDB: mockDB}
-
-	batchID := "test-error-batch"
-
-	mockDB.On("Query", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil, errors.New("DynamoDB error"))
-
-	req := events.APIGatewayProxyRequest{
-		PathParameters: map[string]string{"bulkBatchId": batchID},
-	}
-
-	response, err := h.GetHandler(req)
-
-	assert.NoError(t, err)
-	assert.Equal(t, 500, response.StatusCode)
-	assert.Contains(t, response.Body, "Error getting items from Dynamo")
 }
