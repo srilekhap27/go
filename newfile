@@ -1,125 +1,100 @@
-package main
+// Package and Imports
+package services
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"net/http"
-	"testing"
+    "fmt"
+    "os"
+    "time"
 
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/stretchr/testify/assert"
-	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
-	"progitdlab.usaa.com/grp-aws-my-documents/mydocs-get-documents-by-batchid-lambda/internal/handler"
+    "github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+    "github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/logging/slog"
+    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/models"
+    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
 )
 
-type MockDynamoDB struct {
-	repositories.DbClientInterface
-	QueryFunc func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+// Constants
+const (
+    PK        = "Pk"
+    SK        = "Sk"
+    PrtyIDKey = "PRTY_ID#"
+    DateKey   = "DISP_DT#"
+)
+
+var tableName = os.Getenv("DOCUMENTS_TABLE")
+
+type DocumentDBClient struct {
+    DynamoDB repositories.Connection
 }
 
-func (m *MockDynamoDB) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	if params.ExpressionAttributeValues == nil || params.ExpressionAttributeValues[":batchID"] == nil {
-		return nil, errors.New("ExpressionAttributeValues or :batchID is nil")
-	}
+func (d *DocumentDBClient) GetListByMember(item *models.Item, start *string, end *string, limit *int32, lastEvaluatedItem string, sortAscending *bool, tableItems interface{}) error {
+    // Marshal PK
+    partitionKey, err := attributevalue.Marshal(PrtyIDKey + item.Party.PartyID)
+    if err != nil {
+        slog.JSONLogger.With("error", err).Error("Error marshalling partitionKey " + PrtyIDKey + item.Party.PartyID)
+        return err
+    }
 
-	batchIDValue, ok := params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS)
-	if !ok {
-		return nil, errors.New("invalid type for :batchID")
-	}
+    // Pagination logic
+    var lastKey map[string]types.AttributeValue
+    if len(lastEvaluatedItem) > 0 {
+        sortKey, err := attributevalue.Marshal(lastEvaluatedItem)
+        if err != nil {
+            slog.JSONLogger.With("error", err).Error("Error marshalling sortKey " + lastEvaluatedItem)
+        }
+        lastKey = map[string]types.AttributeValue{
+            PK: partitionKey,
+            SK: sortKey,
+        }
+    } else {
+        lastKey = nil
+    }
 
-	if batchIDValue.Value == "valid-batch" {
-		return &dynamodb.QueryOutput{
-			Items: []map[string]types.AttributeValue{
-				{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
-			},
-		}, nil
-	}
+    // Date comparison and range
+    if len(*start) > 0 && len(*end) > 0 {
+        today := time.Now().Format(time.DateOnly)
+        startDate, err := time.Parse(time.DateOnly, *start)
+        if err != nil {
+            slog.JSONLogger.With("error", err).Error("Start Display Date should be in YYYY-MM-DD format")
+            return err
+        }
 
-	return &dynamodb.QueryOutput{}, nil
-}
+        endDate, err := time.Parse(time.DateOnly, *end)
+        if err != nil {
+            slog.JSONLogger.With("error", err).Error("End Display Date should be in YYYY-MM-DD format")
+            return err
+        }
 
-func TestHandleRequest(t *testing.T) {
-	tests := []struct {
-		name               string
-		request            events.APIGatewayProxyRequest
-		expectedStatusCode int
-		expectedBody       string
-	}{
-		{
-			name: "Valid GET Request with Data",
-			request: events.APIGatewayProxyRequest{
-				HTTPMethod: "GET",
-				PathParameters: map[string]string{
-					"bulkBatchId": "valid-batch",
-				},
-			},
-			expectedStatusCode: http.StatusOK,
-			expectedBody:       `[{"PartitionKey":"123","DocumentGUID":"guid1","DisplayDate":"2024-01-01","BulkBatchID":"valid-batch"}]`,
-		},
-		{
-			name: "Valid GET Request with No Data",
-			request: events.APIGatewayProxyRequest{
-				HTTPMethod: "GET",
-				PathParameters: map[string]string{
-					"bulkBatchId": "empty-batch",
-				},
-			},
-			expectedStatusCode: http.StatusNotFound,
-			expectedBody:       `{"BatchID":"empty-batch","ErrorMessage":"No Documents found with given BatchID","Timestamp":""}`,
-		},
-		{
-			name: "Invalid HTTP Method",
-			request: events.APIGatewayProxyRequest{
-				HTTPMethod: "POST",
-			},
-			expectedStatusCode: http.StatusMethodNotAllowed,
-			expectedBody:       "Unsupported http request or method",
-		},
-	}
+        if endDate.Before(today) {
+            *end = FormatDate(today.Add(time.Hour*24), time.DateOnly)
+        } else {
+            endDate = endDate.Add(time.Hour * 24)
+            *end = FormatDate(endDate, time.DateOnly)
+        }
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := MyHandler{
-				Handler: handler.Handler{
-					DynamoDB: repositories.Connection{
-						DbClient: &MockDynamoDB{
-							QueryFunc: func(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-								if params.ExpressionAttributeValues == nil || params.ExpressionAttributeValues[":batchID"] == nil {
-									return nil, errors.New("ExpressionAttributeValues or :batchID is nil")
-								}
+        // Create secondary key condition
+        keyCondition = keyCondition.And(expression.Key(SK).Between(
+            expression.Value(fmt.Sprintf("%s%s", DateKey, *start)),
+            expression.Value(fmt.Sprintf("%s%s", DateKey, *end)),
+        ))
+    } else {
+        displayDate := time.Now().Add(time.Hour * 24).Format(time.DateOnly)
+        keyCondition = keyCondition.And(expression.Key(SK).LessThanEqual(expression.Value(fmt.Sprintf("%s%s", DateKey, displayDate))))
+    }
 
-								batchIDValue, ok := params.ExpressionAttributeValues[":batchID"].(*types.AttributeValueMemberS)
-								if !ok {
-									return nil, errors.New("invalid type for :batchID")
-								}
+    // Build select expression
+    expr, err := BuildExpression(keyCondition, notExpired)
+    if err != nil {
+        slog.JSONLogger.With("error", err).Error("Failed to build expression")
+        return err
+    }
 
-								if batchIDValue.Value == "valid-batch" {
-									return &dynamodb.QueryOutput{
-										Items: []map[string]types.AttributeValue{
-											{"PartitionKey": &types.AttributeValueMemberS{Value: "PARTY#123"}, "SortKey": &types.AttributeValueMemberS{Value: "DOC#guid1#DISP_DT#2024-01-01"}, "BulkBatchID": &types.AttributeValueMemberS{Value: "valid-batch"}},
-										},
-									}, nil
-								}
+    err = d.DynamoDB.Query(&tableName, nil, expr, limit, lastKey, sortAscending, &tableItems)
+    if err != nil {
+        slog.JSONLogger.With("error", err).Error("Error getting items from Dynamo")
+        return err
+    }
 
-								return &dynamodb.QueryOutput{}, nil
-							},
-						},
-					},
-				},
-			}
-			response, err := h.handleRequest(tt.request)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expectedStatusCode, response.StatusCode)
-
-			if tt.expectedBody != "" {
-				var expectedOutput, actualOutput interface{}
-				_ = json.Unmarshal([]byte(tt.expectedBody), &expectedOutput)
-				_ = json.Unmarshal([]byte(response.Body), &actualOutput)
-				assert.Equal(t, expectedOutput, actualOutput)
-			}
-		})
-	}
+    return nil
 }
