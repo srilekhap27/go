@@ -1,100 +1,26 @@
-// Package and Imports
-package services
+Overview: This update addresses the logic used for determining the start and end dates relative to the current date (today). The modification ensures that the start and end dates are assigned appropriately based on whether today is before, after, or between the startDate and endDate.
 
-import (
-    "fmt"
-    "os"
-    "time"
+Changes Introduced:
 
-    "github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
-    "github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
-    "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/logging/slog"
-    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/models"
-    "prodgitlab.usaa.com/grp-aws-my-documents/mydocs-cloud-commons/modules/repositories"
-)
+For start date:
+If today is before startDate, *start will be set to today. If today is on or after startDate, the *start will remain unchanged.
 
-// Constants
-const (
-    PK        = "Pk"
-    SK        = "Sk"
-    PrtyIDKey = "PRTY_ID#"
-    DateKey   = "DISP_DT#"
-)
+For end date:
 
-var tableName = os.Getenv("DOCUMENTS_TABLE")
+If today is before endDate, *end will be set to the following day (i.e., today + 1 day).
+If today is on or after endDate, *end will be updated by adding a single day to endDate.
+Example Scenarios:
 
-type DocumentDBClient struct {
-    DynamoDB repositories.Connection
-}
+Scenario 1:
 
-func (d *DocumentDBClient) GetListByMember(item *models.Item, start *string, end *string, limit *int32, lastEvaluatedItem string, sortAscending *bool, tableItems interface{}) error {
-    // Marshal PK
-    partitionKey, err := attributevalue.Marshal(PrtyIDKey + item.Party.PartyID)
-    if err != nil {
-        slog.JSONLogger.With("error", err).Error("Error marshalling partitionKey " + PrtyIDKey + item.Party.PartyID)
-        return err
-    }
+startDate = 2025-02-05, endDate = 2025-02-07, today = 2025-02-06
+Result:
+*start remains unset since today is after startDate.
+*end is updated to 2025-02-07, which is the next day after today.
+Scenario 2:
 
-    // Pagination logic
-    var lastKey map[string]types.AttributeValue
-    if len(lastEvaluatedItem) > 0 {
-        sortKey, err := attributevalue.Marshal(lastEvaluatedItem)
-        if err != nil {
-            slog.JSONLogger.With("error", err).Error("Error marshalling sortKey " + lastEvaluatedItem)
-        }
-        lastKey = map[string]types.AttributeValue{
-            PK: partitionKey,
-            SK: sortKey,
-        }
-    } else {
-        lastKey = nil
-    }
-
-    // Date comparison and range
-    if len(*start) > 0 && len(*end) > 0 {
-        today := time.Now().Format(time.DateOnly)
-        startDate, err := time.Parse(time.DateOnly, *start)
-        if err != nil {
-            slog.JSONLogger.With("error", err).Error("Start Display Date should be in YYYY-MM-DD format")
-            return err
-        }
-
-        endDate, err := time.Parse(time.DateOnly, *end)
-        if err != nil {
-            slog.JSONLogger.With("error", err).Error("End Display Date should be in YYYY-MM-DD format")
-            return err
-        }
-
-        if endDate.Before(today) {
-            *end = FormatDate(today.Add(time.Hour*24), time.DateOnly)
-        } else {
-            endDate = endDate.Add(time.Hour * 24)
-            *end = FormatDate(endDate, time.DateOnly)
-        }
-
-        // Create secondary key condition
-        keyCondition = keyCondition.And(expression.Key(SK).Between(
-            expression.Value(fmt.Sprintf("%s%s", DateKey, *start)),
-            expression.Value(fmt.Sprintf("%s%s", DateKey, *end)),
-        ))
-    } else {
-        displayDate := time.Now().Add(time.Hour * 24).Format(time.DateOnly)
-        keyCondition = keyCondition.And(expression.Key(SK).LessThanEqual(expression.Value(fmt.Sprintf("%s%s", DateKey, displayDate))))
-    }
-
-    // Build select expression
-    expr, err := BuildExpression(keyCondition, notExpired)
-    if err != nil {
-        slog.JSONLogger.With("error", err).Error("Failed to build expression")
-        return err
-    }
-
-    err = d.DynamoDB.Query(&tableName, nil, expr, limit, lastKey, sortAscending, &tableItems)
-    if err != nil {
-        slog.JSONLogger.With("error", err).Error("Error getting items from Dynamo")
-        return err
-    }
-
-    return nil
-}
+startDate = 2025-02-15, endDate = 2025-02-17, today = 2025-02-13
+Result:
+*start is set to 2025-02-13 because today is before startDate.
+*end is set to 2025-02-14, which is one day after today.
+Justification: This enhancement ensures that the logic for determining the start and end dates is more flexible and accurate. By taking into account whether today is before or after the specified date ranges, we can ensure that *start and *end are consistently calculated, thus minimizing errors and improving overall reliability.
