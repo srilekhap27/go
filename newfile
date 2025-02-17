@@ -1,26 +1,111 @@
-Overview: This update addresses the logic used for determining the start and end dates relative to the current date (today). The modification ensures that the start and end dates are assigned appropriately based on whether today is before, after, or between the startDate and endDate.
+# MYDOCS-GET-DOCUMENTS-BY-BATCHID-LAMBDA
 
-Changes Introduced:
+## Overview
+This project implements an AWS Lambda function to retrieve documents using batch IDs or document GUIDs from a DynamoDB table. The function is integrated with AWS API Gateway and follows a structured approach for handling requests and responses.
 
-For start date:
-If today is before startDate, *start will be set to today. If today is on or after startDate, the *start will remain unchanged.
+## Features
+- Fetch documents by **batch ID** or **document GUID**.
+- Utilizes DynamoDB **Global Secondary Indexes (GSI)** for efficient querying.
+- Handles API Gateway requests using structured request-response methods.
+- Implements error handling and logging.
 
-For end date:
+## Project Structure
+```
+MYDOCS-GET-DOCUMENTS-BY-BATCHID-LAMBDA
+│── .idea/
+│── .vscode/
+│── certs/
+│── internal/
+│    ├── handler/
+│        ├── getHandler_test.go
+│        ├── getHandler.go
+│── scripts/
+│── vendor/
+│── .gitignore
+│── .gitlab-ci.yml
+│── goreleaser.yml
+│── coverage.html
+│── go.mod
+│── go.sum
+│── lambda-build.sh
+│── main_test.go
+│── main.go
+│── README.md
+```
 
-If today is before endDate, *end will be set to the following day (i.e., today + 1 day).
-If today is on or after endDate, *end will be updated by adding a single day to endDate.
-Example Scenarios:
+## API Endpoints
+### 1. Get Documents by Batch ID
+**Endpoint:** `/admin/documents/batches/{batchID}`
 
-Scenario 1:
+- Queries DynamoDB using the **BLK_BTCH_ID-PK-idx** GSI.
+- Returns all documents associated with the given batch.
+- Only retrieves **item keys**, excluding non-indexed columns.
 
-startDate = 2025-02-05, endDate = 2025-02-07, today = 2025-02-06
-Result:
-*start remains unset since today is after startDate.
-*end is updated to 2025-02-07, which is the next day after today.
-Scenario 2:
+### 2. Get Documents by Document GUID
+**Endpoint:** `/admin/documents/{guid}`
 
-startDate = 2025-02-15, endDate = 2025-02-17, today = 2025-02-13
-Result:
-*start is set to 2025-02-13 because today is before startDate.
-*end is set to 2025-02-14, which is one day after today.
-Justification: This enhancement ensures that the logic for determining the start and end dates is more flexible and accurate. By taking into account whether today is before or after the specified date ranges, we can ensure that *start and *end are consistently calculated, thus minimizing errors and improving overall reliability.
+- Uses the **DOC-GUID-PK-idx** GSI to fetch documents.
+- Retrieves all members a document is delivered to.
+- Only returns **item keys**, with non-indexed columns unavailable.
+
+## Key Components
+### Environment Variables
+- `DOCUMENTS_TABLE`: The DynamoDB table storing documents.
+- `DOC-GUID-PK-idx`: Index used for document retrieval.
+
+### Handler Functions
+#### `HandleRequest`
+- Handles API Gateway requests.
+- Supports **GET** requests for retrieving documents.
+
+#### `GetDocuments`
+- Fetches documents using a **document GUID**.
+- Builds a **DynamoDB Key Condition Expression**.
+- Parses **partition and sort keys**.
+- Returns structured JSON responses.
+
+### Response Structures
+#### **Success Response**
+```json
+{
+  "partyId": "string",
+  "documentGuid": "string",
+  "displayDate": "string"
+}
+```
+
+#### **Error Response**
+```json
+{
+  "docGUID": "string",
+  "errorMessage": "string",
+  "timestamp": "string"
+}
+```
+
+## Setup & Deployment
+### Prerequisites
+- Go installed
+- AWS CLI configured
+- IAM Role with DynamoDB read permissions
+
+### Build and Deploy
+```sh
+sh lambda-build.sh
+```
+
+### Running Locally
+```sh
+go run main.go
+```
+
+## Error Handling & Logging
+- Uses `slog.JSONLogger` for structured logging.
+- Returns meaningful HTTP status codes.
+  - `400` - Invalid request
+  - `404` - No documents found
+  - `500` - Internal server error
+
+## License
+This project is licensed under the MIT License.
+
