@@ -1,11 +1,11 @@
-// Intercept window creation of anchor tag
-    cy.window().then((win) => {
-      const anchorStub = win.document.createElement("a");
-      
-      // Spy on the anchor's click method
-      cy.spy(anchorStub, "click").as("anchorClick");
+cy.window().then((win) => {
+      const originalCreateElement = win.document.createElement; // Store original method
 
-      // Stub document.createElement to return our mock anchor when 'a' is created
-      cy.stub(win.document, "createElement")
-        .callsFake((tagName) => (tagName === "a" ? anchorStub : win.document.createElement(tagName)));
+      const anchorStub = originalCreateElement.call(win.document, "a"); // Create anchor normally
+      cy.spy(anchorStub, "click").as("anchorClick"); // Spy on click()
+
+      // Stub ⁠ document.createElement ⁠ but avoid infinite recursion
+      cy.stub(win.document, "createElement").callsFake((tagName) => {
+        return tagName === "a" ? anchorStub : originalCreateElement.call(win.document, tagName);
+      });
     });
