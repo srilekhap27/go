@@ -1,1 +1,11 @@
-// Stub `document.createElement('a')` and `click()` cy.window().then((win) => { cy.spy(document, "createElement").as("createAnchor"); cy.spy(HTMLAnchorElement.prototype, "click").as("anchorClick"); }); // Click the button cy.get('[data-cy="download-button"]').click(); // Verify an anchor (`<a>`) tag was created cy.get("@createAnchor").should("have.been.calledWith", "a"); // Verify the anchor was clicked cy.get("@anchorClick").should("have.been.calledOnce"); // Optionally, check if the download attribute exists cy.get("a[download]").should("exist");
+// Intercept window creation of anchor tag
+    cy.window().then((win) => {
+      const anchorStub = win.document.createElement("a");
+      
+      // Spy on the anchor's click method
+      cy.spy(anchorStub, "click").as("anchorClick");
+
+      // Stub document.createElement to return our mock anchor when 'a' is created
+      cy.stub(win.document, "createElement")
+        .callsFake((tagName) => (tagName === "a" ? anchorStub : win.document.createElement(tagName)));
+    });
