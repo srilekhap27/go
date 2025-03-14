@@ -1,57 +1,63 @@
-it('should dispatch a call on print and open the correct URL', async () => {
-    const store = createStore();
-    const { getByTestId, getByText } = render(
-        <Provider store={store}>
-            <DocumentList />
-        </Provider>
-    );
+import { printClick } from './yourFile'; // Update with the correct file path
+import { retrieveAndHandleDocument } from './yourDependency'; // Mock dependency
 
-    // Spy on window.open
-    const windowOpenSpy = jest.spyOn(window, 'open').mockImplementation(() => {});
+jest.mock('./yourDependency', () => ({
+    retrieveAndHandleDocument: jest.fn(),
+}));
 
-    fireEvent.click(getByTestId('actions-0'));
-    fireEvent.click(getByText('Print'));
+describe('printClick', () => {
+    beforeEach(() => {
+        jest.spyOn(window, 'open').mockReturnValue({
+            onload: null,
+            print: jest.fn(),
+            onafterprint: null,
+            close: jest.fn(),
+        });
 
-    expect(mockDispatch).toBeCalledWith(expect.any(Function));
+        global.URL.createObjectURL = jest.fn(() => 'mockObjectURL');
+    });
 
-    // Verify window.open was called with the expected URL
-    expect(windowOpenSpy).toBeCalledWith('expected-url-here', '_blank');
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
 
-    // Restore the original window.open behavior
-    windowOpenSpy.mockRestore();
-});
+    it('should retrieve document, open a new window, and trigger print', async () => {
+        const mockDocId = { selectedDocumentId: { documentId: 'doc123' } };
+        const mockDisplayDate = { selectedDisplayDate: { displayDate: '2025-03-14' } };
 
+        // Mock response data
+        const mockDocumentContent = 'Test PDF content';
+        const mockHeaders = { 'content-type': 'application/pdf' };
+        const mockResponse = [mockDocumentContent, 200, mockHeaders];
 
-it('should dispatch a call on download and create a clickable anchor tag', async () => {
-    const store = createStore();
-    const { getByTestId, getByText } = render(
-        <Provider store={store}>
-            <DocumentList />
-        </Provider>
-    );
+        // Simulate callback invocation in ⁠ retrieveAndHandleDocument ⁠
+        retrieveAndHandleDocument.mockImplementation((docId, date, action, callback) => {
+            callback(mockResponse);
+        });
 
-    // Spy on document.createElement
-    const createElementSpy = jest.spyOn(document, 'createElement');
-    const mockAnchor = {
-        href: '',
-        download: '',
-        click: jest.fn(),
-        remove: jest.fn(),
-    };
-    
-    createElementSpy.mockReturnValue(mockAnchor);
+        await printClick(mockDocId, mockDisplayDate);
 
-    fireEvent.click(getByTestId('actions-0'));
-    fireEvent.click(getByText('Download'));
+        // ✅ Check if ⁠ retrieveAndHandleDocument ⁠ was called correctly
+        expect(retrieveAndHandleDocument).toHaveBeenCalledWith(
+            'doc123',
+            '2025-03-14',
+            expect.any(String),
+            expect.any(Function)
+        );
 
-    expect(mockDispatch).toBeCalledWith(expect.any(Function));
+        // ✅ Check if Blob is created with correct data and type
+        expect(global.URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
 
-    // Verify an anchor tag was created
-    expect(createElementSpy).toHaveBeenCalledWith('a');
+        // ✅ Check if ⁠ window.open ⁠ was called with the object URL
+        expect(window.open).toHaveBeenCalledWith('mockObjectURL');
 
-    // Verify the anchor tag was clicked
-    expect(mockAnchor.click).toHaveBeenCalled();
+        // ✅ Simulate window onload and check if print was triggered
+        const mockWindow = window.open.mock.results[0].value;
+        mockWindow.onload();
+        expect(mockWindow.print).toHaveBeenCalled();
 
-    // Restore original createElement
-    createElementSpy.mockRestore();
+        // ✅ Simulate onafterprint and check if window was closed
+        mockWindow.onafterprint();
+        expect(mockWindow.close).toHaveBeenCalled();
+    });
 });
