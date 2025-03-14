@@ -20,3 +20,38 @@ it('should dispatch a call on print and open the correct URL', async () => {
     // Restore the original window.open behavior
     windowOpenSpy.mockRestore();
 });
+
+
+it('should dispatch a call on download and create a clickable anchor tag', async () => {
+    const store = createStore();
+    const { getByTestId, getByText } = render(
+        <Provider store={store}>
+            <DocumentList />
+        </Provider>
+    );
+
+    // Spy on document.createElement
+    const createElementSpy = jest.spyOn(document, 'createElement');
+    const mockAnchor = {
+        href: '',
+        download: '',
+        click: jest.fn(),
+        remove: jest.fn(),
+    };
+    
+    createElementSpy.mockReturnValue(mockAnchor);
+
+    fireEvent.click(getByTestId('actions-0'));
+    fireEvent.click(getByText('Download'));
+
+    expect(mockDispatch).toBeCalledWith(expect.any(Function));
+
+    // Verify an anchor tag was created
+    expect(createElementSpy).toHaveBeenCalledWith('a');
+
+    // Verify the anchor tag was clicked
+    expect(mockAnchor.click).toHaveBeenCalled();
+
+    // Restore original createElement
+    createElementSpy.mockRestore();
+});
