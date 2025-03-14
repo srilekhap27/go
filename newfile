@@ -1,63 +1,60 @@
-import { printClick } from './yourFile'; // Update with the correct file path
-import { retrieveAndHandleDocument } from './yourDependency'; // Mock dependency
+import React from 'react';
+import { fireEvent, render } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { createStore } from '../redux/store'; // Ensure correct store path
+import Document from '../components/Document'; // Ensure correct path
+import * as APIHook from '../hooks/APIHook'; // Spy on APIHook
+import * as Logger from '../utils/logger'; // Spy on logging functions
 
-jest.mock('./yourDependency', () => ({
-    retrieveAndHandleDocument: jest.fn(),
-}));
+describe('Print Document', () => {
+    it('should dispatch a call on print and open the correct URL', async () => {
+        const store = createStore();
+        const { getByTestId, getByText } = render(
+            <Provider store={store}>
+                <Document />
+            </Provider>
+        );
 
-describe('printClick', () => {
-    beforeEach(() => {
-        jest.spyOn(window, 'open').mockReturnValue({
+        // Mock API Hook to prevent actual API calls
+        jest.spyOn(APIHook, 'useApi').mockReturnValue({
+            retrieveDocument: jest.fn().mockResolvedValue([
+                'Mock PDF content',
+                200,
+                { 'content-type': 'application/pdf' }
+            ]),
+        });
+
+        // Spy on window.open
+        const windowOpenSpy = jest.spyOn(window, 'open').mockImplementation(() => ({
             onload: null,
             print: jest.fn(),
             onafterprint: null,
             close: jest.fn(),
-        });
+        }));
 
+        // Mock URL.createObjectURL
         global.URL.createObjectURL = jest.fn(() => 'mockObjectURL');
-    });
 
-    afterEach(() => {
-        jest.restoreAllMocks();
-    });
+        // Click actions button and print button
+        fireEvent.click(getByTestId('actions-0'));
+        fireEvent.click(getByTestId('print-btn'));
 
-    it('should retrieve document, open a new window, and trigger print', async () => {
-        const mockDocId = { selectedDocumentId: { documentId: 'doc123' } };
-        const mockDisplayDate = { selectedDisplayDate: { displayDate: '2025-03-14' } };
-
-        // Mock response data
-        const mockDocumentContent = 'Test PDF content';
-        const mockHeaders = { 'content-type': 'application/pdf' };
-        const mockResponse = [mockDocumentContent, 200, mockHeaders];
-
-        // Simulate callback invocation in ⁠ retrieveAndHandleDocument ⁠
-        retrieveAndHandleDocument.mockImplementation((docId, date, action, callback) => {
-            callback(mockResponse);
-        });
-
-        await printClick(mockDocId, mockDisplayDate);
-
-        // ✅ Check if ⁠ retrieveAndHandleDocument ⁠ was called correctly
-        expect(retrieveAndHandleDocument).toHaveBeenCalledWith(
-            'doc123',
-            '2025-03-14',
-            expect.any(String),
-            expect.any(Function)
-        );
-
-        // ✅ Check if Blob is created with correct data and type
+        // ✅ Ensure URL.createObjectURL was called with a Blob
         expect(global.URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
 
-        // ✅ Check if ⁠ window.open ⁠ was called with the object URL
-        expect(window.open).toHaveBeenCalledWith('mockObjectURL');
+        // ✅ Ensure window.open was called with the generated URL
+        expect(windowOpenSpy).toHaveBeenCalledWith('mockObjectURL');
 
-        // ✅ Simulate window onload and check if print was triggered
-        const mockWindow = window.open.mock.results[0].value;
-        mockWindow.onload();
-        expect(mockWindow.print).toHaveBeenCalled();
+        // ✅ Simulate print window loading and ensure it triggers print
+        const mockPrintWindow = windowOpenSpy.mock.results[0].value;
+        mockPrintWindow.onload();
+        expect(mockPrintWindow.print).toHaveBeenCalled();
 
-        // ✅ Simulate onafterprint and check if window was closed
-        mockWindow.onafterprint();
-        expect(mockWindow.close).toHaveBeenCalled();
+        // ✅ Ensure window closes after printing
+        mockPrintWindow.onafterprint();
+        expect(mockPrintWindow.close).toHaveBeenCalled();
+
+        // Restore mock
+        windowOpenSpy.mockRestore();
     });
 });
