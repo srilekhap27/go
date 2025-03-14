@@ -1,11 +1,22 @@
-cy.window().then((win) => {
-      const originalCreateElement = win.document.createElement; // Store original method
+it('should dispatch a call on print and open the correct URL', async () => {
+    const store = createStore();
+    const { getByTestId, getByText } = render(
+        <Provider store={store}>
+            <DocumentList />
+        </Provider>
+    );
 
-      const anchorStub = originalCreateElement.call(win.document, "a"); // Create anchor normally
-      cy.spy(anchorStub, "click").as("anchorClick"); // Spy on click()
+    // Spy on window.open
+    const windowOpenSpy = jest.spyOn(window, 'open').mockImplementation(() => {});
 
-      // Stub ⁠ document.createElement ⁠ but avoid infinite recursion
-      cy.stub(win.document, "createElement").callsFake((tagName) => {
-        return tagName === "a" ? anchorStub : originalCreateElement.call(win.document, tagName);
-      });
-    });
+    fireEvent.click(getByTestId('actions-0'));
+    fireEvent.click(getByText('Print'));
+
+    expect(mockDispatch).toBeCalledWith(expect.any(Function));
+
+    // Verify window.open was called with the expected URL
+    expect(windowOpenSpy).toBeCalledWith('expected-url-here', '_blank');
+
+    // Restore the original window.open behavior
+    windowOpenSpy.mockRestore();
+});
