@@ -1,60 +1,92 @@
-import React from 'react';
-import { fireEvent, render } from '@testing-library/react';
-import { Provider } from 'react-redux';
-import { createStore } from '../redux/store'; // Ensure correct store path
-import Document from '../components/Document'; // Ensure correct path
-import * as APIHook from '../hooks/APIHook'; // Spy on APIHook
-import * as Logger from '../utils/logger'; // Spy on logging functions
+import { printClick, downloadClick } from '../../../src/components/Document';
+import { retrieveDocument } from '../../../src/api/Api';
+import { ERROR_MESSAGES } from '../../../src/utils/logger';
 
-describe('Print Document', () => {
-    it('should dispatch a call on print and open the correct URL', async () => {
-        const store = createStore();
-        const { getByTestId, getByText } = render(
-            <Provider store={store}>
-                <Document />
-            </Provider>
-        );
+jest.mock('../../../src/api/Api', () => ({
+    retrieveDocument: jest.fn(),
+}));
 
-        // Mock API Hook to prevent actual API calls
-        jest.spyOn(APIHook, 'useApi').mockReturnValue({
-            retrieveDocument: jest.fn().mockResolvedValue([
-                'Mock PDF content',
-                200,
-                { 'content-type': 'application/pdf' }
-            ]),
+jest.mock('../../../src/utils/logger', () => ({
+    ERROR_MESSAGES: {
+        VIEW_DOCUMENT_ERROR: 'Error viewing document',
+    },
+    Severity: {
+        ERROR: 'error',
+    },
+    handleErrorAndLog: jest.fn(),
+}));
+
+describe('DocumentList utility functions', () => {
+    let mockDispatch;
+    let mockCreateElement;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockDispatch = jest.fn();
+        global.URL.createObjectURL = jest.fn(() => 'mock-url');
+
+        // Mock window.open for printClick
+        global.open = jest.fn().mockReturnValue({
+            print: jest.fn(),
+            onafterprint: jest.fn(),
+            close: jest.fn(),
         });
 
-        // Spy on window.open
-        const windowOpenSpy = jest.spyOn(window, 'open').mockImplementation(() => ({
-            onload: null,
-            print: jest.fn(),
-            onafterprint: null,
-            close: jest.fn(),
-        }));
+        // Mock document.createElement for downloadClick
+        mockCreateElement = document.createElement;
+        document.createElement = jest.fn().mockReturnValue({
+            click: jest.fn(),
+            href: '',
+            download: '',
+        });
+    });
 
-        // Mock URL.createObjectURL
-        global.URL.createObjectURL = jest.fn(() => 'mockObjectURL');
+    afterEach(() => {
+        document.createElement = mockCreateElement;
+    });
 
-        // Click actions button and print button
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByTestId('print-btn'));
+    it('should print a document when printClick is called successfully', async () => {
+        retrieveDocument.mockResolvedValue([
+            new Blob(['Test Document Content'], { type: 'application/pdf' }),
+            200,
+            { 'content-type': 'application/pdf' },
+        ]);
 
-        // ✅ Ensure URL.createObjectURL was called with a Blob
-        expect(global.URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+        await printClick('mock-document-id', 'mock-display-date');
 
-        // ✅ Ensure window.open was called with the generated URL
-        expect(windowOpenSpy).toHaveBeenCalledWith('mockObjectURL');
+        expect(retrieveDocument).toHaveBeenCalledWith('mock-document-id', 'mock-display-date');
+        expect(global.open).toHaveBeenCalledWith('mock-url');
+    });
 
-        // ✅ Simulate print window loading and ensure it triggers print
-        const mockPrintWindow = windowOpenSpy.mock.results[0].value;
-        mockPrintWindow.onload();
-        expect(mockPrintWindow.print).toHaveBeenCalled();
+    it('should handle an error when printClick fails', async () => {
+        retrieveDocument.mockRejectedValue(new Error('API failure'));
 
-        // ✅ Ensure window closes after printing
-        mockPrintWindow.onafterprint();
-        expect(mockPrintWindow.close).toHaveBeenCalled();
+        await printClick('mock-document-id', 'mock-display-date');
 
-        // Restore mock
-        windowOpenSpy.mockRestore();
+        expect(retrieveDocument).toHaveBeenCalledWith('mock-document-id', 'mock-display-date');
+        expect(mockDispatch).toHaveBeenCalledWith({ type: 'errors/setError', payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR });
+    });
+
+    it('should download a document when downloadClick is called successfully', async () => {
+        retrieveDocument.mockResolvedValue([
+            new Blob(['Test Document Content'], { type: 'application/pdf' }),
+            200,
+            { 'content-type': 'application/pdf' },
+        ]);
+
+        await downloadClick('mock-document-id', 'mock-display-date');
+
+        expect(retrieveDocument).toHaveBeenCalledWith('mock-document-id', 'mock-display-date');
+        expect(document.createElement).toHaveBeenCalledWith('a');
+        expect(document.createElement().click).toHaveBeenCalled();
+    });
+
+    it('should handle an error when downloadClick fails', async () => {
+        retrieveDocument.mockRejectedValue(new Error('API failure'));
+
+        await downloadClick('mock-document-id', 'mock-display-date');
+
+        expect(retrieveDocument).toHaveBeenCalledWith('mock-document-id', 'mock-display-date');
+        expect(mockDispatch).toHaveBeenCalledWith({ type: 'errors/setError', payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR });
     });
 });
