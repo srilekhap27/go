@@ -1,70 +1,106 @@
+Step 1: Debug Coverage with Console Logs
+Before fixing the test, add console logs inside the component to check if the condition is reached.
+
+Modify your component code:
+
+javascript
+Copy
+Edit
+const retrieveAndHandleDocument = async (
+    documentId,
+    displayDate,
+    affectedFunction,
+    successCallback,
+    markDocumentCallback
+) => {
+    try {
+        let docId = documentId;
+        let disDate = displayDate;
+        console.log('Fetching document with ID:', docId, disDate);
+
+        const resp = await fetchApi.retrieveDocument(docId, disDate);
+        console.log('Response received:', resp);  // <-- Add this to confirm response
+
+        if (resp === undefined || resp.length < 2) {
+            const cause = resp === undefined
+                ? 'Response array returned by retrieveDocument function is undefined'
+                : `Size of Response array returned by retrieveDocument function is ${resp.length}. Minimum size of 2 is expected.`;
+
+            console.log('Triggering handleErrorAndLog:', cause);  // <-- Confirm it reaches this block
+            handleErrorAndLog(
+                null,
+                affectedFunction,
+                'Failed to retrieve document contents',
+                cause,
+                Severity.ERROR
+            );
+            return;
+        }
+
+        successCallback(resp);
+        if (markDocumentCallback) {
+            markDocumentCallback();
+        }
+    } catch (error) {
+        dispatch(setError(ERROR_MESSAGES.VIEW_DOCUMENT_ERROR));
+        handleErrorAndLog(
+            error,
+            affectedFunction,
+            'Failed to retrieve document contents to view',
+            '',
+            Severity.ERROR
+        );
+    }
+};
+✅ Now, when you run the test, you should see logs confirming if the block is executed.
+
+✅ Step 2: Fix the Test to Ensure Execution
+Modify your test to force retrieveDocument to return undefined explicitly.
+
+✅ Fixed Test for Undefined Response
+javascript
+Copy
+Edit
 it('should log an error when printing a document and response is undefined', async () => {
-        retrieveDocument.mockResolvedValue(undefined);
+    retrieveDocument.mockResolvedValueOnce(undefined);  // Force undefined response
 
-        const { getByTestId, getByText } = render(
-            <Provider store={store}>
-                <DocumentList />
-            </Provider>
+    const { getByTestId, getByText } = render(
+        <Provider store={store}>
+            <DocumentList />
+        </Provider>
+    );
+
+    fireEvent.click(getByTestId('actions-0'));  // Open actions menu
+    fireEvent.click(getByText('Print'));  // Trigger print
+
+    await waitFor(() => {
+        expect(handleErrorAndLog).toHaveBeenCalledWith(
+            null,
+            expect.any(String), // affectedFunction
+            'Failed to retrieve document contents',
+            'Response array returned by retrieveDocument function is undefined',
+            Severity.ERROR
         );
-
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByText('Print'));
-
-        await waitFor(() => {
-            expect(handleErrorAndLog).toHaveBeenCalledWith(
-                null,
-                expect.any(String), // affectedFunction
-                'Failed to retrieve document contents',
-                'Response array returned by retrieveDocument function is undefined',
-                Severity.ERROR
-            );
-        });
     });
 
-    it('should log an error when printing a document and response length is less than 2', async () => {
-        retrieveDocument.mockResolvedValue([{}]); // Array with only one item
+    expect(retrieveDocument).toHaveBeenCalled();  // Ensure function was called
+});
+✅ Step 3: Confirm Coverage Report
+Run your test coverage command:
 
-        const { getByTestId, getByText } = render(
-            <Provider store={store}>
-                <DocumentList />
-            </Provider>
-        );
+sh
+Copy
+Edit
+npm run test -- --coverage
+Then, check which lines are still missing. If the block is still not covered, it means:
 
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByText('Print'));
+The retrieveDocument mock is not behaving as expected.
+The test is not executing the function.
+🔥 Additional Debugging if Still Not Covered
+If the block STILL doesn't execute, try running this in the test:
 
-        await waitFor(() => {
-            expect(handleErrorAndLog).toHaveBeenCalledWith(
-                null,
-                expect.any(String), // affectedFunction
-                'Failed to retrieve document contents',
-                'Size of Response array returned by retrieveDocument function is 1. Minimum size of 2 is expected.',
-                Severity.ERROR
-            );
-        });
-    });
-
-    it('should handle exception when printing a document and retrieveDocument throws an error', async () => {
-        retrieveDocument.mockImplementation(() => {
-            throw new Error('Mocked fetch error');
-        });
-
-        const { getByTestId, getByText } = render(
-            <Provider store={store}>
-                <DocumentList />
-            </Provider>
-        );
-
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByText('Print'));
-
-        await waitFor(() => {
-            expect(handleErrorAndLog).toHaveBeenCalledWith(
-                expect.any(Error),
-                expect.any(String), // affectedFunction
-                'Failed to retrieve document contents to view',
-                '',
-                Severity.ERROR
-            );
-        });
-    });
+javascript
+Copy
+Edit
+console.log('retrieveDocument calls:', retrieveDocument.mock.calls);
+This confirms whether the function was even called.
