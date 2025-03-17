@@ -5,7 +5,7 @@ import { render, fireEvent, waitFor } from '@testing-library/react';
 import { documents } from '../../../src/api/dev/testData';
 import { configureStore } from '@reduxjs/toolkit';
 import rootReducer from '../../../src/redux/documentSlice';
-import { ERROR_MESSAGES } from '../../../src/utils/logger';
+import { ERROR_MESSAGES, handleErrorAndLog, Severity } from '../../../src/utils/logger';
 
 var mockDispatch = jest.fn();
 
@@ -15,6 +15,11 @@ jest.mock('../../../src/api/Api', () => ({
 }));
 
 import { retrieveDocument } from '../../../src/api/Api';
+
+jest.mock('../../../src/utils/logger', () => ({
+    ...jest.requireActual('../../../src/utils/logger'),
+    handleErrorAndLog: jest.fn(),
+}));
 
 const action = {
     documentList: [documents, 200],
@@ -45,7 +50,7 @@ describe('DocumentList component - Web View', () => {
         jest.clearAllMocks();
     });
 
-    it('should call markDocumentCallback when response is undefined', async () => {
+    it('should log an error when response is undefined', async () => {
         retrieveDocument.mockResolvedValue(undefined);
 
         const { getByTestId } = render(
@@ -57,16 +62,17 @@ describe('DocumentList component - Web View', () => {
         fireEvent.click(getByTestId('readDoc-0'));
 
         await waitFor(() => {
-            expect(mockDispatch).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'errors/setError',
-                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
-                })
+            expect(handleErrorAndLog).toHaveBeenCalledWith(
+                null,
+                expect.any(String), // affectedFunction
+                'Failed to retrieve document contents',
+                'Response array returned by retrieveDocument function is undefined',
+                Severity.ERROR
             );
         });
     });
 
-    it('should call markDocumentCallback when response array length is less than 2', async () => {
+    it('should log an error when response array length is less than 2', async () => {
         retrieveDocument.mockResolvedValue([{}]); // Array with only one item
 
         const { getByTestId } = render(
@@ -78,17 +84,20 @@ describe('DocumentList component - Web View', () => {
         fireEvent.click(getByTestId('readDoc-0'));
 
         await waitFor(() => {
-            expect(mockDispatch).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'errors/setError',
-                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
-                })
+            expect(handleErrorAndLog).toHaveBeenCalledWith(
+                null,
+                expect.any(String), // affectedFunction
+                'Failed to retrieve document contents',
+                'Size of Response array returned by retrieveDocument function is 1. Minimum size of 2 is expected.',
+                Severity.ERROR
             );
         });
     });
 
-    it('should NOT call markDocumentCallback when response is valid', async () => {
-        retrieveDocument.mockResolvedValue(['content', 200, { 'content-type': 'application/pdf' }]);
+    it('should handle exception when retrieveDocument throws an error', async () => {
+        retrieveDocument.mockImplementation(() => {
+            throw new Error('Mocked fetch error');
+        });
 
         const { getByTestId } = render(
             <Provider store={store}>
@@ -99,11 +108,12 @@ describe('DocumentList component - Web View', () => {
         fireEvent.click(getByTestId('readDoc-0'));
 
         await waitFor(() => {
-            expect(mockDispatch).not.toHaveBeenCalledWith(
-                expect.objectContaining({
-                    type: 'errors/setError',
-                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
-                })
+            expect(handleErrorAndLog).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.any(String), // affectedFunction
+                'Failed to retrieve document contents to view',
+                '',
+                Severity.ERROR
             );
         });
     });
