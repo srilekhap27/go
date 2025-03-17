@@ -1,65 +1,14 @@
-import React from 'react';
-import { Provider } from 'react-redux';
-import DocumentList from '../../../src/components/DocumentList';
-import { render, fireEvent, waitFor } from '@testing-library/react';
-import { documents } from '../../../src/api/dev/testData';
-import { configureStore } from '@reduxjs/toolkit';
-import rootReducer from '../../../src/redux/documentSlice';
-import { ERROR_MESSAGES, handleErrorAndLog, Severity } from '../../../src/utils/logger';
-
-var mockDispatch = jest.fn();
-
-jest.mock('../../../src/hooks/APIHook.js');
-jest.mock('../../../src/api/Api', () => ({
-    retrieveDocument: jest.fn(),
-}));
-
-import { retrieveDocument } from '../../../src/api/Api';
-
-jest.mock('../../../src/utils/logger', () => ({
-    ...jest.requireActual('../../../src/utils/logger'),
-    handleErrorAndLog: jest.fn(),
-}));
-
-const action = {
-    documentList: [documents, 200],
-    filters: [],
-    sorts: [],
-    errors: [],
-    resultCount: null,
-    isMobile: false,
-    documentError: '',
-    loader: false,
-    empty: false,
-};
-
-const createStore = (initialState = action) => {
-    return configureStore({
-        reducer: rootReducer,
-        preloadedState: { action: initialState },
-    });
-};
-
-describe('DocumentList component - Web View', () => {
-    let store;
-
-    beforeEach(() => {
-        process.env.USAA_PLATFORM = 'standard';
-        process.env.USAA_ENV = 'development';
-        store = createStore();
-        jest.clearAllMocks();
-    });
-
-    it('should log an error when response is undefined', async () => {
+it('should log an error when printing a document and response is undefined', async () => {
         retrieveDocument.mockResolvedValue(undefined);
 
-        const { getByTestId } = render(
+        const { getByTestId, getByText } = render(
             <Provider store={store}>
                 <DocumentList />
             </Provider>
         );
 
-        fireEvent.click(getByTestId('readDoc-0'));
+        fireEvent.click(getByTestId('actions-0'));
+        fireEvent.click(getByText('Print'));
 
         await waitFor(() => {
             expect(handleErrorAndLog).toHaveBeenCalledWith(
@@ -72,16 +21,17 @@ describe('DocumentList component - Web View', () => {
         });
     });
 
-    it('should log an error when response array length is less than 2', async () => {
+    it('should log an error when printing a document and response length is less than 2', async () => {
         retrieveDocument.mockResolvedValue([{}]); // Array with only one item
 
-        const { getByTestId } = render(
+        const { getByTestId, getByText } = render(
             <Provider store={store}>
                 <DocumentList />
             </Provider>
         );
 
-        fireEvent.click(getByTestId('readDoc-0'));
+        fireEvent.click(getByTestId('actions-0'));
+        fireEvent.click(getByText('Print'));
 
         await waitFor(() => {
             expect(handleErrorAndLog).toHaveBeenCalledWith(
@@ -94,18 +44,19 @@ describe('DocumentList component - Web View', () => {
         });
     });
 
-    it('should handle exception when retrieveDocument throws an error', async () => {
+    it('should handle exception when printing a document and retrieveDocument throws an error', async () => {
         retrieveDocument.mockImplementation(() => {
             throw new Error('Mocked fetch error');
         });
 
-        const { getByTestId } = render(
+        const { getByTestId, getByText } = render(
             <Provider store={store}>
                 <DocumentList />
             </Provider>
         );
 
-        fireEvent.click(getByTestId('readDoc-0'));
+        fireEvent.click(getByTestId('actions-0'));
+        fireEvent.click(getByText('Print'));
 
         await waitFor(() => {
             expect(handleErrorAndLog).toHaveBeenCalledWith(
@@ -117,4 +68,3 @@ describe('DocumentList component - Web View', () => {
             );
         });
     });
-});
