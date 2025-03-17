@@ -1,58 +1,110 @@
-  it('should call retrieveDocument and trigger window.open on print click', async () => {
-        fetchApi.retrieveDocument.mockResolvedValue([
-            new Blob(['mock document content'], { type: 'application/pdf' }),
-            200,
-            { 'content-type': 'application/pdf' }
-        ]);
+import React from 'react';
+import { Provider } from 'react-redux';
+import DocumentList from '../../../src/components/DocumentList';
+import { render, fireEvent, waitFor } from '@testing-library/react';
+import { documents } from '../../../src/api/dev/testData';
+import { configureStore } from '@reduxjs/toolkit';
+import rootReducer from '../../../src/redux/documentSlice';
+import { ERROR_MESSAGES } from '../../../src/utils/logger';
 
-        const { getByTestId, getByText } = render(
-            <Provider store={store}>
-                <DocumentList />
-            </Provider>
-        );
+var mockDispatch = jest.fn();
 
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByText('Print'));
+jest.mock('../../../src/hooks/APIHook.js');
+jest.mock('../../../src/api/Api', () => ({
+    retrieveDocument: jest.fn(),
+}));
 
-        // Ensure retrieveDocument was called with correct parameters
-        expect(fetchApi.retrieveDocument).toHaveBeenCalledWith(
-            expect.any(String), 
-            expect.any(String)
-        );
+import { retrieveDocument } from '../../../src/api/Api';
 
-        // Ensure window.open was called
-        expect(window.open).toHaveBeenCalled();
+const action = {
+    documentList: [documents, 200],
+    filters: [],
+    sorts: [],
+    errors: [],
+    resultCount: null,
+    isMobile: false,
+    documentError: '',
+    loader: false,
+    empty: false,
+};
+
+const createStore = (initialState = action) => {
+    return configureStore({
+        reducer: rootReducer,
+        preloadedState: { action: initialState },
+    });
+};
+
+describe('DocumentList component - Web View', () => {
+    let store;
+
+    beforeEach(() => {
+        process.env.USAA_PLATFORM = 'standard';
+        process.env.USAA_ENV = 'development';
+        store = createStore();
+        jest.clearAllMocks();
     });
 
-    it('should call retrieveDocument and create a download link on download click', async () => {
-        fetchApi.retrieveDocument.mockResolvedValue([
-            new Blob(['mock document content'], { type: 'application/pdf' }),
-            200,
-            { 'content-type': 'application/pdf' }
-        ]);
+    it('should call markDocumentCallback when response is undefined', async () => {
+        retrieveDocument.mockResolvedValue(undefined);
 
-        document.createElement = jest.fn(() => ({
-            href: '',
-            download: '',
-            click: jest.fn()
-        }));
-
-        const { getByTestId, getByText } = render(
+        const { getByTestId } = render(
             <Provider store={store}>
                 <DocumentList />
             </Provider>
         );
 
-        fireEvent.click(getByTestId('actions-0'));
-        fireEvent.click(getByText('Download'));
+        fireEvent.click(getByTestId('readDoc-0'));
 
-        // Ensure retrieveDocument was called with correct parameters
-        expect(fetchApi.retrieveDocument).toHaveBeenCalledWith(
-            expect.any(String), 
-            expect.any(String)
+        await waitFor(() => {
+            expect(mockDispatch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'errors/setError',
+                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
+                })
+            );
+        });
+    });
+
+    it('should call markDocumentCallback when response array length is less than 2', async () => {
+        retrieveDocument.mockResolvedValue([{}]); // Array with only one item
+
+        const { getByTestId } = render(
+            <Provider store={store}>
+                <DocumentList />
+            </Provider>
         );
 
-        // Ensure a download link is created and triggered
-        expect(document.createElement).toHaveBeenCalledWith('a');
+        fireEvent.click(getByTestId('readDoc-0'));
+
+        await waitFor(() => {
+            expect(mockDispatch).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'errors/setError',
+                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
+                })
+            );
+        });
+    });
+
+    it('should NOT call markDocumentCallback when response is valid', async () => {
+        retrieveDocument.mockResolvedValue(['content', 200, { 'content-type': 'application/pdf' }]);
+
+        const { getByTestId } = render(
+            <Provider store={store}>
+                <DocumentList />
+            </Provider>
+        );
+
+        fireEvent.click(getByTestId('readDoc-0'));
+
+        await waitFor(() => {
+            expect(mockDispatch).not.toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: 'errors/setError',
+                    payload: ERROR_MESSAGES.VIEW_DOCUMENT_ERROR,
+                })
+            );
+        });
     });
 });
