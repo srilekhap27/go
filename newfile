@@ -1,31 +1,21 @@
-import { useApi } from '../hooks/APIHook'; // Ensure this path is correct
+import React from "react";
+import { render, fireEvent } from "@testing-library/react";
+import MyComponent, { retrieveDoc } from "./MyComponent"; // Import both the component and function
+import * as MyComponentModule from "./MyComponent"; // Import as module to spy on functions
 
-jest.mock('../hooks/APIHook', () => ({
-    useApi: jest.fn(),
-}));
+test("calls retrieveDoc with correct argument when button is clicked", () => {
+  // Spy on retrieveDoc to track calls
+  const retrieveDocMock = jest.spyOn(MyComponentModule, "retrieveDoc");
 
-it('should log an error when response array length is less than 2', async () => {
-    const mockRetrieveDocument = jest.fn().mockResolvedValueOnce([{}]); // Mock response
+  // Render the component
+  const { getByText } = render(<MyComponent />);
 
-    useApi.mockReturnValue({
-        retrieveDocument: mockRetrieveDocument, // Mock the function inside the API instance
-    });
+  // Click the button
+  fireEvent.click(getByText("Print"));
 
-    const { getByTestId } = render(
-        <Provider store={store}>
-            <DocumentList />
-        </Provider>
-    );
+  // Assert that retrieveDoc was called with expected argument
+  expect(retrieveDocMock).toHaveBeenCalledWith("1234");
 
-    fireEvent.click(getByTestId('readDoc-0'));
-
-    await waitFor(() => {
-        expect(mockRetrieveDocument).toHaveBeenCalledTimes(1); // Ensure API call happened
-        expect(handleErrorAndLog).toHaveBeenCalledWith(
-            null,
-            expect.any(String), // affectedFunction
-            'Failed to retrieve document contents to view',
-            Severity.ERROR
-        );
-    });
+  // Clean up the mock
+  retrieveDocMock.mockRestore();
 });
