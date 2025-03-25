@@ -1,21 +1,116 @@
-import React from "react";
-import { render, fireEvent } from "@testing-library/react";
-import MyComponent, { retrieveDoc } from "./MyComponent"; // Import both the component and function
-import * as MyComponentModule from "./MyComponent"; // Import as module to spy on functions
+Great question! Let's break it down and cover **two sets of test cases**:
 
-test("calls retrieveDoc with correct argument when button is clicked", () => {
-  // Spy on retrieveDoc to track calls
-  const retrieveDocMock = jest.spyOn(MyComponentModule, "retrieveDoc");
+---
 
-  // Render the component
-  const { getByText } = render(<MyComponent />);
+## ✅ 1. **Unit Tests for `showDisclaimer()` function**
+Since it's a pure function, this is straightforward.
 
-  // Click the button
-  fireEvent.click(getByText("Print"));
+#### File: `__tests__/disclaimer.test.js` or `utils/disclaimer.test.js`
 
-  // Assert that retrieveDoc was called with expected argument
-  expect(retrieveDocMock).toHaveBeenCalledWith("1234");
+```js
+import { showDisclaimer } from '../utils/disclaimer';
+import { DATE_FILTER } from '../utils/constants';
 
-  // Clean up the mock
-  retrieveDocMock.mockRestore();
+describe('showDisclaimer', () => {
+  it('should return false if DATE_FILTER exists in filters', () => {
+    const filters = [
+      { filterType: DATE_FILTER },
+      { filterType: 'OTHER_FILTER' },
+    ];
+    expect(showDisclaimer(filters)).toBe(false);
+  });
+
+  it('should return true if DATE_FILTER does NOT exist in filters', () => {
+    const filters = [
+      { filterType: 'SOME_OTHER_FILTER' },
+    ];
+    expect(showDisclaimer(filters)).toBe(true);
+  });
+
+  it('should return true if filters is empty', () => {
+    expect(showDisclaimer([])).toBe(true);
+  });
+
+  it('should handle undefined/null filters defensively', () => {
+    expect(showDisclaimer(undefined)).toBe(true);
+    expect(showDisclaimer(null)).toBe(true);
+  });
 });
+```
+
+---
+
+## ✅ 2. **Component Test for `DisclaimerMessage` Display Logic**
+
+Assuming you're using **React Testing Library**.
+
+#### File: `__tests__/DocumentList.test.jsx`
+
+```jsx
+import { render, screen } from '@testing-library/react';
+import DocumentList from '../components/DocumentList';
+import * as disclaimerUtils from '../utils/disclaimer';
+
+// Mock the hook & helpers
+jest.mock('react-redux', () => ({
+  useSelector: jest.fn(() => ({
+    filters: [],
+    documentList: [],
+    lastFilterType: null,
+    sorts: [],
+    loader: false,
+    empty: false,
+    isMobile: false,
+  })),
+}));
+
+jest.mock('../utils/disclaimer', () => ({
+  showDisclaimer: jest.fn(),
+}));
+
+describe('DocumentList component', () => {
+  it('should render DisclaimerMessage when showDisclaimer returns true', () => {
+    disclaimerUtils.showDisclaimer.mockReturnValue(true);
+
+    render(<DocumentList />);
+
+    expect(screen.getByTestId('info-doc-search')).toBeInTheDocument();
+  });
+
+  it('should NOT render DisclaimerMessage when showDisclaimer returns false', () => {
+    disclaimerUtils.showDisclaimer.mockReturnValue(false);
+
+    render(<DocumentList />);
+
+    expect(screen.queryByTestId('info-doc-search')).not.toBeInTheDocument();
+  });
+});
+```
+
+---
+
+## ✅ 3. (Optional) Test `DisclaimerMessage` Itself
+
+```jsx
+import { render, screen } from '@testing-library/react';
+import DisclaimerMessage from '../components/DisclaimerMessage';
+
+test('renders disclaimer message content correctly', () => {
+  render(<DisclaimerMessage />);
+  expect(screen.getByTestId('info-doc-search')).toHaveTextContent(/delivered within the last 18/i);
+});
+```
+
+---
+
+## 🧪 Summary of What You're Testing
+
+| Test Type          | What It Covers                              |
+|--------------------|----------------------------------------------|
+| `showDisclaimer()` | Pure logic — presence/absence of DATE_FILTER |
+| `DocumentList`     | Renders disclaimer conditionally              |
+| `DisclaimerMessage`| Renders static message                       |
+
+---
+
+Let me know what test framework/setup you're using (`Jest`, `Vitest`, `RTL`, etc.) — I can help tailor this even more.
